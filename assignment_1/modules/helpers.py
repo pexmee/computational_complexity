@@ -15,12 +15,22 @@ MAX_X = 3937
 MAX_Y = 3998
 
 """
-TODO: I believe we only have to check which one is the furthest for each node, we don't need
+I believe we only have to check which one is the furthest for each node, we don't need
 to save all the neighbours. In addition we can just recurse through the nodes, always save the 
 furthest away node, and once we have that, we traverse to that node and do the same thing, just remembering 
 which one is the start node. However we need to check which ones we have already visited, so that we don't go back and fourth.
 So we will add visited nodes in a list or something, and then we will make sure that once we have what we need, we can then
 just hop on back to the first node to complete the cycle.
+"""
+
+"""
+Okey so obviously the above comment is depricated. 
+The code needs to look for the SHORTEST cycle, not the longest.
+So instead of looking at which node is the furthest away, let's look at which one is the closest instead. 
+
+TODO: Save weights in order to present the total travelled distance.
+TODO: Modify member function to find clusters of short possible paths of traversal.
+
 """
 
 # We could've used a tuple instead but this is just more pleasant.
@@ -55,6 +65,7 @@ class Traverser:
         self.checked_nodes: List[Node] = [] # Holds checked Nodes
         self.current_node: Node
         self.cycle: List[Node] = []
+        self.total_distance: float = 0
         self.set_nodes()
 
     
@@ -95,7 +106,6 @@ class Traverser:
                     # This means we have checked everything already.
                     if not self.stack:
                         done = True
-                        print(self.current_node.weights)
                         self.build_path()
                         return
                 
@@ -105,34 +115,32 @@ class Traverser:
             
             
 
-    # Returns largest key in weights
+    # Returns smallest key in weights
     @staticmethod
-    def largest(node: Node) -> Optional[Node]:
+    def smallest(node: Node) -> Optional[Node]:
         if node.weights:
-            print("returning max")
-            return max(node.weights, key=node.weights.get)
+            return min(node.weights, key=node.weights.get)
         
         else:
-            print("returning None")
             return None
 
     def build_path(self):
         print("building path")
-        print("current node:")
         while self.checked_nodes:
             self.current_node = self.checked_nodes.pop(0)
-            largest_weight: Node = self.largest(self.current_node)
-            if largest_weight:
-                if largest_weight not in self.cycle:
+            smallest_weight: Node = self.smallest(self.current_node)
+            if smallest_weight:
+                if smallest_weight not in self.cycle:
                     if self.current_node not in self.cycle:
-                        self.cycle.append(self.current_node)
-                    self.cycle.append(largest_weight)
+                        self.cycle.append(self.current_node) # Should happen once.
+                    self.total_distance += self.current_node.weights[smallest_weight]
+                    self.cycle.append(smallest_weight)
 
                 else:
-                    self.current_node.weights.pop(largest_weight)
+                    self.current_node.weights.pop(smallest_weight)
             else:
-                print("Closing cycle:",self.cycle)
                 self.cycle.append(self.cycle[0]) # Close cycle.
+                print(self.total_distance)
                 self.graph()
                 return
             
