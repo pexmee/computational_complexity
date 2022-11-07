@@ -1,13 +1,13 @@
-import sys
 from copy import deepcopy
 from math import sqrt
-from pkgutil import get_data
 from typing import Dict, Generator, List, Optional
-
+import json
+import ndjson
 import matplotlib.pyplot as p
 
 DATA128 = "data128.txt"
 DATA16K = "data16k.txt"
+CYCLE_FILE = "cycles.ndjson"
 X: int = []
 Y: int = []
 
@@ -59,91 +59,113 @@ class Node:
 class Traverser:
     def __init__(self) -> None:
 
+        """
+        Traverser will utilize Dijkstras algorithm for shortest path by
+        initially by checking all weights to the nodes from the current node.
+        Then it will move to the closest node, and continue doing this until it has
+        found the shortest path from the starting node.
+
+        To improve upon this algorithm, one can use evolutionary computation to
+        attempt to find the shortest path, by constantly searching for a shorter path.
+        And just attempting to find a path shorter than that one, and for each shorter path
+        we could stop and see how much shorter we have gotten, since it's unfeasable to calculate
+        all permutations via bruteforce. At least for the data16k problem.
+        """
+
         self.stack: List[Node] = []  # Holds Nodes to be traversed
-        self.nodes: List[Node] = []  # Holds ALL Nodes.
-        self.checked_nodes: List[Node] = []  # Holds checked Nodes
-        self.current_node: Node
-        self.cycle: List[Node] = []  # Holds cycle that we found
-        self.total_distance: float = 0
-        self.set_nodes()
+        self.nodes: List[Node] = []  # Holds all Nodes left to be traversed.
+        self.possible_starting_nodes: List[Node] = [] # Holds all Nodes we can use as staring nodes.
+        self.cycle: List[Node] = []  # Holds the current path.
+        self.current_node: Optional[Node] = None
+        self.distance_traversed: float = 0
+        self.idx: int = -1  # index of stuff to pop yo
+        self.starting_nodes_set = False
 
-    def check_weights_from_current(self, stack: List[Node]) -> None:
-        """
-        Iterates through the stack containing all possible nodes to traverse to.
-        """
-        while stack:
-            node = stack.pop()
-            self.current_node.weights[node] = self.calc_dist(node)
+    def traverse(self):
+        self._initialize_nodes()
 
-    @staticmethod
-    def get_data() -> Generator[Node, None, None]:
-        with open(DATA128, "r") as read_h:
-            for row in read_h.readlines():
-                row = row.strip()
-                if row:
-                    yield Node(*tuple(row.split()))
+        if self.starting_nodes_set and self.possible_starting_nodes:
+            while self.nodes:
+                print(f"Cycle length: {len(self.cycle)}")
+                print(f"possible starting nodes: {len(self.possible_starting_nodes)}")
+                self._make_stack()
+                self._weigh_nodes()
+                self._choose_shortest_dist()
 
-    def calc_dist(self, node: Node) -> float:
-        return sqrt(
-            pow((node.x - self.current_node.x), 2)
-            + pow((node.y - self.current_node.y), 2)
-        )
+            self._close_cycle()
 
-    def set_nodes(self) -> None:
-        done = False
+    def _initialize_nodes(self):
+        self.nodes.clear() # Make sure it is empty.
+        self.cycle.clear() # Make sure cycle is empty too
+        self.distance_traversed = 0 # reset this
 
-        while not done:
-            if not self.nodes:
-                self.nodes = [Node for Node in self.get_data()]
+        for node in self.get_data():
+            self.nodes.append(node)
 
-            if not self.stack:
-                self.stack = deepcopy(self.nodes)
+        if not self.starting_nodes_set:
+            self.possible_starting_nodes = deepcopy(self.nodes)
+            self.starting_nodes_set = True
 
-                if self.checked_nodes:
-                    for node in self.checked_nodes:
-                        if node in self.stack:
-                            self.stack.remove(node)
+    def _make_stack(self):
+        if self.nodes:  # Sanitycheck
 
-                    # This means we have checked everything already.
-                    if not self.stack:
-                        done = True
-                        self.build_path()
-                        return
+            if self.idx != -1:
+                self.current_node = self.nodes.pop(self.idx)
+                self.idx = -1
 
-                self.current_node = self.stack.pop()
-                self.checked_nodes.append(self.current_node)
-                self.check_weights_from_current(self.stack)
+            else:
+                # This should always happen the first time, so we
+                # Can make sure that the node hasn't already been
+                # used as the starting node by choosing anything that hasn't
+                # already been used
+                if self.possible_starting_nodes and not self.cycle: # Sanity check
+                    self.current_node = self.possible_starting_nodes.pop()
+                    self.nodes.pop(self.nodes.index(self.current_node)) # Remove it from self.nodes.
+                
+                else:
+                    self.current_node = self.nodes.pop()
+                    
+
+            self.stack = deepcopy(self.nodes)
+
+    def _weigh_nodes(self):
+        while self.stack:
+            node = self.stack.pop()
+            self.current_node.weights[node] = self._calc_dist(node)
+
+    def _choose_shortest_dist(self):
+        shortest_path = self._smallest(self.current_node)
+        if shortest_path:
+
+            if shortest_path in self.cycle:
+                self.current_node.weights.pop(shortest_path)
+                self._choose_shortest_dist()  # We need to choose a new shortest path since we don't wanna go back to the same one.
+
+            else:
+                self.distance_traversed += self.current_node.weights[shortest_path]
+                # self.current_node = shortest_path -> do this in make_stack
+                self.idx = self.nodes.index(
+                    shortest_path
+                )  # Don't catch valueerror we wanna crash here if it messes up
+                self.cycle.append(self.current_node)
+        else:
+            print("no shortest path, cycle should be done")
 
     # Returns smallest key in weights
     @staticmethod
-    def smallest(node: Node) -> Optional[Node]:
+    def _smallest(node: Node) -> Optional[Node]:
         if node.weights:
             return min(node.weights, key=node.weights.get)
 
         else:
             return None
 
-    def build_path(self):
-        print("building path")
-        self.current_node = self.checked_nodes.pop(0)
-        self.cycle.append(self.current_node)
-        while self.checked_nodes:
-            smallest_weight: Node = self.smallest(self.current_node)
+    def _close_cycle(self):
+        self.cycle.append(self.cycle[0])
+        self._dump_cycle()
 
-            if smallest_weight:
-                if smallest_weight not in self.cycle:
-                    self.total_distance += self.current_node.weights[smallest_weight]
-                    self.cycle.append(smallest_weight)
-                    index = self.checked_nodes(smallest_weight)
-                    self.current_node = self.checked_nodes.pop(index)
-
-                else:
-                    self.current_node.weights.pop(smallest_weight)
-            else:
-                self.cycle.append(self.cycle[0])  # Close cycle.
-                print(self.total_distance)
-                self.graph()
-                return
+    def _reset_traversal(self):
+        self.traverse()
 
     def graph(self):
         x: int = []
@@ -159,12 +181,34 @@ class Traverser:
         p.axis("equal")
         p.show()
 
+    def _calc_dist(self, node: Node) -> float:
+        return sqrt(
+            pow((node.x - self.current_node.x), 2)
+            + pow((node.y - self.current_node.y), 2)
+        )
 
-def graph() -> None:
-    p.plot(X, Y, color="white", marker="o", markerfacecolor="red", markersize=6)
-    p.xlim(0, MAX_X)
-    p.ylim(0, MAX_Y)
-    p.xlabel("x-axis")
-    p.ylabel("y-axis")
-    p.title("Points")
-    p.show()
+    def _dump_cycle(self):
+        data: Dict[List[str],Dict[float,List[str]]] = {}
+        coordinates: List[str] = []
+        
+        for node in self.cycle:
+            coordinates.append(f"({str(node.x)},{str(node.y)})")
+        
+        data[f"({self.cycle[0].x},{self.cycle[0].y})"] = {self.distance_traversed : coordinates}
+
+        with open(CYCLE_FILE, "a") as write_h:
+            json.dump(data, write_h)
+            write_h.write("\n")
+        
+        self._reset_traversal()
+            
+
+
+    @staticmethod
+    def get_data() -> Generator[Node, None, None]:
+        with open(DATA128, "r") as read_h:
+            for row in read_h.readlines():
+                row = row.strip()
+                if row:
+                    yield Node(*tuple(row.split()))
+    
