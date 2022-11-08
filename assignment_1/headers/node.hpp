@@ -2,20 +2,43 @@
 #define NODE_HPP
 #include <string.h>
 #include <iostream>
-#include <unordered_map>
+#include <algorithm>
 
 struct Node{
         int x;
         int y;
-        std::unordered_map<Node,double> weights;
+        bool visited;
+        double weight;
+        Node *from;
+        Node *to;
         
         Node(); 
         ~Node();
-        Node(std::string x, std::string y);
+        Node(int x, int y);
         
+        Node(const Node &other){
+            this->x = other.x;
+            this->y = other.y;
+            this->weight = other.weight;
+            this->from = other.from;
+            this->to = other.to;
+        }
+        Node& operator=(const Node &other){
+            this->x = other.x;
+            this->y = other.y;
+            this->weight = other.weight;
+            this->from = other.from;
+            this->to = other.to;
+            return *this;
+        }
+
         bool operator==(const Node &other) const{
-        return (x == other.x && y == other.y);
-    }
+        return (this->x == other.x && this->y == other.y);
+        }
+
+        bool operator!=(const Node &other) const {
+            return (this->x != other.x || this->y != other.y);
+        }
 
 };
 

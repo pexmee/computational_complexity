@@ -1,15 +1,17 @@
 from copy import deepcopy
 from math import sqrt
-from typing import Dict, Generator, List, Optional
+from typing import Dict, Generator, List, Optional, Tuple
 import json
 import ndjson
 import matplotlib.pyplot as p
 
 DATA128 = "data128.txt"
 DATA16K = "data16k.txt"
-CYCLE_FILE = "cycles.ndjson"
+CYCLE_128 = "cycles.ndjson"
+CYCLE_16K = "cycles_16k.ndjson"
 X: int = []
 Y: int = []
+MAX = 2_147_483_647 # To avoid a jump
 
 # Precomputed these just because we are always working on the same dataset here.
 MAX_X = 3937
@@ -39,7 +41,6 @@ class Node:
     def __init__(self, x: str, y: str) -> None:
         self.x = int(x)
         self.y = int(y)
-        self.weights: Dict[Node, float] = {}
 
     def __hash__(self) -> int:
         return hash(
@@ -70,15 +71,19 @@ class Traverser:
         And just attempting to find a path shorter than that one, and for each shorter path
         we could stop and see how much shorter we have gotten, since it's unfeasable to calculate
         all permutations via bruteforce. At least for the data16k problem.
+
+
+        TODO: Don't save all possible places to traverse, don't weigh all and save the weight,
+        instead, just always save the smallest weight to reduce memory usage. I.e change
+        how we save the weights. We only need to save 1 weight, which is the shortest distance
+        that is possible to traverse to.
         """
 
-        self.stack: List[Node] = []  # Holds Nodes to be traversed
         self.nodes: List[Node] = []  # Holds all Nodes left to be traversed.
         self.possible_starting_nodes: List[Node] = [] # Holds all Nodes we can use as staring nodes.
         self.cycle: List[Node] = []  # Holds the current path.
         self.current_node: Optional[Node] = None
         self.distance_traversed: float = 0
-        self.idx: int = -1  # index of stuff to pop yo
         self.starting_nodes_set = False
 
     def traverse(self):
@@ -86,15 +91,14 @@ class Traverser:
 
         if self.starting_nodes_set and self.possible_starting_nodes:
             while self.nodes:
-                print(f"Cycle length: {len(self.cycle)}")
-                print(f"possible starting nodes: {len(self.possible_starting_nodes)}")
-                self._make_stack()
-                self._weigh_nodes()
+                self._init_playground()
                 self._choose_shortest_dist()
 
             self._close_cycle()
 
     def _initialize_nodes(self):
+        print(f"possible starting nodes: {len(self.possible_starting_nodes)}")
+
         self.nodes.clear() # Make sure it is empty.
         self.cycle.clear() # Make sure cycle is empty too
         self.distance_traversed = 0 # reset this
@@ -106,62 +110,53 @@ class Traverser:
             self.possible_starting_nodes = deepcopy(self.nodes)
             self.starting_nodes_set = True
 
-    def _make_stack(self):
+    def _init_playground(self):
         if self.nodes:  # Sanitycheck
 
-            if self.idx != -1:
-                self.current_node = self.nodes.pop(self.idx)
-                self.idx = -1
-
-            else:
-                # This should always happen the first time, so we
-                # Can make sure that the node hasn't already been
-                # used as the starting node by choosing anything that hasn't
-                # already been used
-                if self.possible_starting_nodes and not self.cycle: # Sanity check
-                    self.current_node = self.possible_starting_nodes.pop()
-                    self.nodes.pop(self.nodes.index(self.current_node)) # Remove it from self.nodes.
+            # This should always happen the first time, so we
+            # Can make sure that the node hasn't already been
+            # used as the starting node by choosing anything that hasn't
+            # already been used
+            if self.possible_starting_nodes and not self.cycle: # Sanity check
+                self.current_node = self.possible_starting_nodes.pop()
+                self.nodes.pop(self.nodes.index(self.current_node)) # Remove it from self.nodes.
+            
+            
                 
-                else:
-                    self.current_node = self.nodes.pop()
-                    
 
-            self.stack = deepcopy(self.nodes)
 
-    def _weigh_nodes(self):
-        while self.stack:
-            node = self.stack.pop()
-            self.current_node.weights[node] = self._calc_dist(node)
+    # Returns closest node
+    def _closest(self) -> Tuple[Optional[Node],float]:
+        shortest_dist: float = MAX
+        closest_node: Optional[Node] = None
+
+        for node in self.nodes:
+            if node not in self.cycle and node != self.current_node:
+                cmp_distance = self._calc_dist(node)
+                
+                if cmp_distance < shortest_dist:
+                    shortest_dist = cmp_distance
+                    closest_node = node
+
+        return closest_node, shortest_dist
 
     def _choose_shortest_dist(self):
-        shortest_path = self._smallest(self.current_node)
-        if shortest_path:
+        closest_node, shortest_dist = self._closest()
+    
+        if closest_node:
+            self.distance_traversed += shortest_dist
+            self.current_node = self.nodes.pop(self.nodes.index(closest_node))
+            self.cycle.append(self.current_node)
 
-            if shortest_path in self.cycle:
-                self.current_node.weights.pop(shortest_path)
-                self._choose_shortest_dist()  # We need to choose a new shortest path since we don't wanna go back to the same one.
-
-            else:
-                self.distance_traversed += self.current_node.weights[shortest_path]
-                # self.current_node = shortest_path -> do this in make_stack
-                self.idx = self.nodes.index(
-                    shortest_path
-                )  # Don't catch valueerror we wanna crash here if it messes up
-                self.cycle.append(self.current_node)
         else:
             print("no shortest path, cycle should be done")
 
-    # Returns smallest key in weights
-    @staticmethod
-    def _smallest(node: Node) -> Optional[Node]:
-        if node.weights:
-            return min(node.weights, key=node.weights.get)
-
-        else:
-            return None
 
     def _close_cycle(self):
         self.cycle.append(self.cycle[0])
+        self.distance_traversed += self._calc_dist(self.cycle[0])
+        print(f"cycle_len: {len(self.cycle)}")
+        print(f"distance_traversed: {self.distance_traversed}")
         self._dump_cycle()
 
     def _reset_traversal(self):
@@ -196,17 +191,17 @@ class Traverser:
         
         data[f"({self.cycle[0].x},{self.cycle[0].y})"] = {self.distance_traversed : coordinates}
 
-        with open(CYCLE_FILE, "a") as write_h:
+        with open(CYCLE_16K, "a") as write_h:
             json.dump(data, write_h)
             write_h.write("\n")
         
-        self._reset_traversal()
+        # self._reset_traversal()
             
 
 
     @staticmethod
     def get_data() -> Generator[Node, None, None]:
-        with open(DATA128, "r") as read_h:
+        with open(DATA16K, "r") as read_h:
             for row in read_h.readlines():
                 row = row.strip()
                 if row:
