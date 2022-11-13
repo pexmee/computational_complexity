@@ -1,23 +1,29 @@
 #include "../headers/traverser.hpp"
 
-void calc_wrapper(std::vector<Node> &nodes, std::vector<Node> &cycle, size_t start_idx, size_t stop_idx){
-
-}
-
 double dist_calc(Node &current_node, Node &neighbor){
     return std::sqrt(std::pow((neighbor.x - current_node.x),2) + std::pow((neighbor.y - current_node.y),2));
 }
 
-class thread_obj{
+int NUM_THREADS = 0;
+
+
+
+class index_distance_th{
 
     public:
-    void operator()(Node &current_node, std::vector<Node> &nodes, std::vector<Node> &cycle, size_t &start_idx, size_t &stop_idx, size_t &idx, std::pair<int, double> (&indices_and_distances)[NUM_THREADS])
+    void operator()(Node &current_node, std::vector<Node> &nodes, std::vector<Node> &cycle, size_t &start_idx, 
+    size_t &stop_idx, size_t &idx, std::pair<int, double> &index_and_distance)
     {
+        /**
+         * Iterates over the nodes, getting the smallest distanc eof current chunk. Saves result in 
+         * indices_and_distances by appending the distance and the index.
+         */
         double smallest_dst = INT_MAX;
         int smallest_index = -1;
 
-        for(int i = 0; i < nodes.size(); i++){
-            if((std::find(cycle.begin(), cycle.end(), nodes[i])) == cycle.end()){
+        for(int i = start_idx; i < stop_idx; i++){
+            if(((std::find(cycle.begin(), cycle.end(), nodes[i])) == cycle.end()) && nodes[i] != current_node){
+                
                 double cmp_dist = dist_calc(current_node, nodes[i]);
                 if (cmp_dist < smallest_dst){
                     smallest_dst = cmp_dist;
@@ -26,9 +32,10 @@ class thread_obj{
             }
             
         }
-        indices_and_distances[idx] = std::pair<double,int>(smallest_dst,smallest_index);
+        index_and_distance = std::pair<int,double>(smallest_index,smallest_dst);
     }
 };
+
 
 Traverser::Traverser(){
     this->nodes = {};
@@ -40,7 +47,6 @@ Traverser::Traverser(){
 }
 
 Traverser::~Traverser(){   
-    std::cout << "destructor called for current node" << std::endl;
     delete this->current_node;
 }
 
@@ -49,43 +55,54 @@ void Traverser::traverse(){
     std::cout << "initialized nodes" << std::endl;
 
     if (this->starting_nodes_set && this->possible_starting_nodes.size() > 0){
+        this->init_playground();
         while (this->nodes.size() > 0){
-            this->init_playground();
+            printf("size: %d\n",this->nodes.size());
             this->choose_shortest_path();
         }
-        std::cout << "closing cycle.." << std::endl;
-        this->close_cycle();
     }
 }
 
+std::pair<int,double> Traverser::closest_linear(std::vector<std::pair<size_t,size_t>> &vals){
+    double smallest_dst = INT_MAX;
+    int smallest_index = -1;
 
-void Traverser::weigh_nodes(){
-
+    for(int i = vals[0].first; i < vals[0].second; i++){
+        if(((std::find(this->cycle.begin(), this->cycle.end(), this->nodes[i])) == this->cycle.end()) && this->nodes[i] != *this->current_node){
+            
+            double cmp_dist = dist_calc(*this->current_node, nodes[i]);
+            if (cmp_dist < smallest_dst){
+                smallest_dst = cmp_dist;
+                smallest_index = i;
+            }
+        }
+        
+    }
+    return std::pair<int,double>(smallest_index,smallest_dst);
 }
 
 void Traverser::choose_shortest_path(){
     // Todo call function to spawn threads and compute this stuff.
-    double shortest_dist;
-    Node asdf(-1,-1);
-    Node closest_node = this->closest(asdf, shortest_dist);
-
-    // If it exists. This should probably be done with pointers tho
-    // But that we will revise in the future. Kek.
-    if (closest_node.x != -1 && closest_node.y != -1){
-        this->distance_traversed += shortest_dist;
-        
-        for(unsigned i = 0; i < this->nodes.size(); i++){
-            if(closest_node == this->nodes[i]){
-                this->current_node = new Node(this->nodes[i]);
-                this->nodes.erase(this->nodes.begin() + i);
-                this->cycle.push_back(*(this->current_node));
-                break;
-            }
-        }
+    std::pair<int,double> index_distance = {};
+    std::vector<std::pair<size_t,size_t>> vals = calc_clusters_for_threads();
+    if(this->nodes.size() > 1000){
+        index_distance = this->closest_parallel(vals);      
     }
     else{
-        std::cout << "no shortest path, cycle should be done" << std::endl;
+        index_distance = this->closest_linear(vals);
     }
+
+    if (index_distance.first == -1){
+        std::cout << "no closest dist, closing cycle" << std::endl;
+        this->close_cycle(); // Since we couldn't find a shortest path we assume we are done here.
+        return;
+    }
+    
+    delete this->current_node;
+    this->current_node = new Node(this->nodes[index_distance.first]);
+    this->nodes.erase(this->nodes.begin() + index_distance.first);
+    this->cycle.push_back(*(this->current_node));    
+    this->distance_traversed += index_distance.second;
 }
 
 void Traverser::initialize_nodes(){
@@ -114,10 +131,12 @@ void Traverser::init_playground(){
     if (this->nodes.size() > 0){ // Sanity check
         if (this->possible_starting_nodes.size() > 0 && this->cycle.size() == 0){
             this->current_node = new Node(this->pop_possible_starting_nodes());
+            this->cycle.push_back(*this->current_node);
             
             // Erase the current node from the nodes
             for(unsigned i = 0; i < this->nodes.size(); i++){
                 if (*(this->current_node) == this->nodes[i]){
+                    std::cout << "removing node" << std::endl;
                     this->nodes.erase(this->nodes.begin() + i); // remove the node
                     break;
                 }
@@ -126,29 +145,6 @@ void Traverser::init_playground(){
     }
 }
 
-
-Node Traverser::closest(Node &closest_node, double &smallest_dist){
-    smallest_dist = INT_MAX;
-    Node closest_node(-1,-1);
-    for (unsigned i = 0; i < this->nodes.size(); i++){
-        
-        // If the node is not found in this->cycle and the current node isn't the node we are looking at
-        if((std::find(this->cycle.begin(), this->cycle.end(), this->nodes[i]) 
-            == this->cycle.end()) && this->nodes[i] != *(this->current_node)){
-                double cmp_distance = this->calc_dist(&(this->nodes[i]));
-
-                if (cmp_distance < smallest_dist){
-                    smallest_dist = cmp_distance;
-                    closest_node = this->nodes[i];
-                }
-        }
-    }
-    return closest_node;
-}
-
-void Traverser::graph(){
-
-}
 
 double Traverser::calc_dist(Node* node){
     return std::sqrt(std::pow((node->x - this->current_node->x),2) + std::pow((node->y - this->current_node->y),2));
@@ -163,12 +159,33 @@ void Traverser::get_data(){
         std::stringstream ss(line);
         ss >> x;
         ss >> y;
-        this->nodes.push_back(Node(x,y));
+        Node node(x,y);
+        if(std::find(this->nodes.begin(),this->nodes.end(), node) == this->nodes.end()){
+            // File contained duplicates, so we remove them.
+            this->nodes.push_back(node);
+        }
     }
+    printf("initial node size: %d", this->nodes.size());
+}
+
+// For serializing the cycle to json object
+void to_json(nlohmann::json &j, const std::vector<Node> &cycle) {
+    std::vector<std::pair<int,int>> converted;
+    converted.reserve(cycle.size());
+
+    for(unsigned i = 0; i < cycle.size(); i++){
+        converted.push_back(std::pair<int,int>(cycle[i].x,cycle[i].y));
+    }
+    j = converted;
+    // j = nlohmann::json{{"name", p.name}, {"address", p.address}, {"age", p.age}};
 }
 
 void Traverser::dump_cycle(){
-
+    std::string start_coord = "(" + std::to_string(this->cycle[0].x) + "," + std::to_string(this->cycle[0].y) + ")";
+    nlohmann::json data;
+    data[start_coord] = {this->distance_traversed, this->cycle};
+    std::ofstream o("cycles_16k.ndjson");
+    o << data << std::endl;
 }
 
 void Traverser::reset_traversal(){
@@ -180,29 +197,34 @@ void Traverser::close_cycle(){
     this->distance_traversed += this->calc_dist(&(this->cycle[0]));
     std::cout << "cycle len: " << this->cycle.size() << std::endl;
     std::cout << "distance traversed: " << this->distance_traversed << std::endl;
+    exit(EXIT_SUCCESS);
     // this->dump_cycle();
 }
 
 
-void Traverser::closest_wrapper(){
 
-}
-
-
-
-void Traverser::calc_closest_chunk(std::vector<std::pair<size_t,size_t>> &vals){
+std::pair<int,double> Traverser::closest_parallel(std::vector<std::pair<size_t,size_t>> &vals){
     std::vector<std::thread> threads = {};
+    
     // index of what it found as smallest, and the distance
     std::pair<int,double> indices_and_distances[NUM_THREADS]; 
-
+    
     // Spawn threads to calculate closest node for each cluster on this->nodes
     for(size_t i = 0; i < vals.size(); i++){
-        std::thread th(thread_obj(), std::ref(this->current_node), std::ref(this->nodes), std::ref(this->cycle), std::ref(vals[i].first), std::ref(vals[i].second));
+        std::thread th(index_distance_th(), std::ref(*this->current_node), std::ref(this->nodes), std::ref(this->cycle), std::ref(vals[i].first), std::ref(vals[i].second), std::ref(i), std::ref(indices_and_distances[i]));
         threads.push_back(std::move(th));
     }
+    
+    // We gots to join them before we can do our operations
+    std::pair<int,double> smallest_dist = {-1,INT_MAX};
     for(size_t i = 0; i < vals.size(); i++){
         threads[i].join();
+        if (indices_and_distances[i].second < smallest_dist.second){
+            smallest_dist = indices_and_distances[i];
+        }
     }
+
+    return smallest_dist;
 }
 
 
@@ -213,27 +235,36 @@ std::vector<std::pair<size_t,size_t>> Traverser::calc_clusters_for_threads(){
     Returns a vector containing the start index and the stopping index
     for operations on this->nodes.
     */
-    
     std::vector<std::pair<size_t,size_t>> vals = {};
     size_t size = this->nodes.size();
-    size_t length = size / NUM_THREADS;
-    size_t remainder = size % NUM_THREADS;
-    size_t chunk_a = length, chunk_b = length +1;
-    size_t a_start = 0, a_stop = 0, b_start = 0, b_stop = 0;
 
-    for (size_t i = 0; i < NUM_THREADS; i++){
-        if(i < NUM_THREADS - remainder){
-            a_start = ((i*chunk_a));
-            a_stop = (chunk_a*(i+1))-1; // -1 due to indexing.
-            vals.push_back(std::pair<size_t,size_t>(a_start,a_stop));
+    if(size > 1000){
+        NUM_THREADS = size / CLUSTER_SIZE;
+        NUM_THREADS++;
+        size_t length = size / NUM_THREADS;
+        size_t remainder = size % NUM_THREADS;
+        size_t chunk_a = length, chunk_b = length +1;
+        size_t a_start = 0, a_stop = 0, b_start = 0, b_stop = 0;
 
+        for (size_t i = 0; i < NUM_THREADS; i++){
+            if(i < NUM_THREADS - remainder){
+                a_start = ((i*chunk_a));
+                a_stop = (chunk_a*(i+1))-1; // -1 due to indexing.
+                vals.push_back(std::pair<size_t,size_t>(a_start,a_stop));
+
+            }
+            size_t tmp_a = a_start, tmp_b = b_start;
+            if(remainder && i >= NUM_THREADS-remainder){
+                b_start = a_stop + (i%(NUM_THREADS-remainder))*(chunk_a+1)+1;
+                b_stop = a_stop + ((i%(NUM_THREADS-remainder))+1)*(chunk_a+1);
+                vals.push_back(std::pair<size_t,size_t>(b_start,b_stop));
+            }
+            // std::cout << "vals[i].first: " << vals[i].first << " vals[i].second: " << vals[i].second << std::endl;
         }
-        size_t tmp_a = a_start, tmp_b = b_start;
-        if(remainder && i >= NUM_THREADS-remainder){
-            b_start = a_stop + (i%(NUM_THREADS-remainder))*(chunk_a+1)+1;
-            b_stop = a_stop + ((i%(NUM_THREADS-remainder))+1)*(chunk_a+1);
-            vals.push_back(std::pair<size_t,size_t>(b_start,b_stop));
-        }
+        return vals;
     }
-    return vals;
+    else{
+        vals.push_back(std::pair<size_t,size_t>(0,size-1));
+        return vals;
+    }
 }

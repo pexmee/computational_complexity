@@ -13,7 +13,8 @@
 #include <sstream>
 #include <string>
 #include <thread>
-
+#include <nlohmann/json.hpp>
+#include <fstream>
 
 /* Defines */
 #define DATA128 "data128.txt"
@@ -22,8 +23,7 @@
 #define MAX_X
 #define MAX_Y
 #define INT_MAX 2147483647
-#define NUM_THREADS 20
-
+#define CLUSTER_SIZE 1000
 
 class Traverser{
 
@@ -52,7 +52,6 @@ class Traverser{
         void init_playground();
         void weigh_nodes();
         void choose_shortest_path();
-        Node closest(Node &closest_node, double &smallest_dist);
         void close_cycle();
         void reset_traversal();
         double calc_dist(Node* node);
@@ -60,8 +59,9 @@ class Traverser{
         void dump_cycle();
         void get_data(); // Need to be modified a bit from python version
         std::vector<std::pair<size_t,size_t>> calc_clusters_for_threads();
-        void calc_closest_chunk(std::vector<std::pair<size_t,size_t>> &vals);
         Node pop_possible_starting_nodes();
+        std::pair<int,double> closest_parallel(std::vector<std::pair<size_t,size_t>> &vals);
+        std::pair<int,double> closest_linear(std::vector<std::pair<size_t,size_t>> &vals);
 };
 
 
