@@ -23,17 +23,9 @@
 #define MAX_X
 #define MAX_Y
 #define INT_MAX 2147483647
-#define CLUSTER_SIZE 1000
+#define CLUSTER_SIZE 500
 
 class Traverser{
-
-    /**
-     * TODO: Multithread aquisition of the shortest distance.
-     * This can be done by spawning "amount of nodes"/10, 
-     * and then computing the shortest distance each cluster
-     * and then finally joining the threads and comparing them
-     * to find which was the ultimate choice.
-     */
     
     private:
         std::vector<Node> nodes;
@@ -54,7 +46,7 @@ class Traverser{
         void choose_shortest_path();
         void close_cycle();
         void reset_traversal();
-        double calc_dist(Node* node);
+        double calc_dist(Node &node);
         void closest_wrapper();
         void dump_cycle();
         void get_data(); // Need to be modified a bit from python version

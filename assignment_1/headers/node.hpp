@@ -7,10 +7,6 @@
 struct Node{
         int x;
         int y;
-        bool visited;
-        double weight;
-        Node *from;
-        Node *to;
         
         Node(); 
         ~Node();
@@ -19,16 +15,10 @@ struct Node{
         Node(const Node &other){
             this->x = other.x;
             this->y = other.y;
-            this->weight = other.weight;
-            this->from = other.from;
-            this->to = other.to;
         }
         Node& operator=(const Node &other){
             this->x = other.x;
             this->y = other.y;
-            this->weight = other.weight;
-            this->from = other.from;
-            this->to = other.to;
             return *this;
         }
 
@@ -38,6 +28,10 @@ struct Node{
 
         bool operator!=(const Node &other) const {
             return (this->x != other.x || this->y != other.y);
+        }
+
+        std::pair<int,int> serialize() const{
+            return std::pair<int,int>(this->x, this->y);
         }
 
 };
