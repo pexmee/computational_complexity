@@ -8,33 +8,24 @@ size_t NUM_THREADS = 0;
 
 
 
-class index_distance_th{
+/**
+ * Rewrite this to use a genetic algorithm with the following approach:
+ *
+ *   Initialization: The initial solutions(first generations) are randomly initialized
+ *   Fitness Score: Here, the main idea is, it may be hard to find the optimal solution but once we have some solution, it's easy to attach a goodness or fitness score to it.
+ *   Selection: The fittest member (solution) of the population survives and moves on to the next generation.
+ *   Crossover: The fittest member(solutions) of the population combines in pairs to create new members (a possible solution).
+ *   Mutation: New members (Possible new solutions) change themselves in a small amount to get even better.
+ * 
+ */
 
-    public:
-    void operator()(Node &current_node, std::vector<Node> &nodes, size_t &start_idx, 
-    size_t &stop_idx, std::pair<int, double> &index_and_distance)
-    {
-        /**
-         * Iterates over the nodes, getting the smallest distanc eof current chunk. Saves result in 
-         * indices_and_distances by appending the distance and the index.
-         */
-        double smallest_dst = INT_MAX;
-        int smallest_index = -1;
 
-        for(size_t i = start_idx; i < stop_idx; i++){
-            if(nodes[i] != current_node){
-                
-                double cmp_dist = dist_calc(current_node, nodes[i]);
-                if (cmp_dist < smallest_dst){
-                    smallest_dst = cmp_dist;
-                    smallest_index = i;
-                }
-            }
-            
-        }
-        index_and_distance = std::pair<int,double>(smallest_index,smallest_dst);
-    }
-};
+ /**
+  * 1. Initialization: Initialize by randomizing a few solutions - just pick a node at random until a cycle has been built. 
+  * 2. Fitness score: The fitness score would be based upon the length traversed to build the cycle.
+  * 3. Selection: Selection would be done by picking the top solutions, a multiple of 2 to make sure we can make children from them.
+  * 4. Crossover: Combine the fittest solutions by  
+  */
 
 
 Traverser::Traverser(){
@@ -44,10 +35,13 @@ Traverser::Traverser(){
     this->current_node = nullptr;
     this->distance_traversed = 0;
     this->starting_nodes_set = false;
+    this->fitness_scores = {};
 }
 
 Traverser::~Traverser(){   
-    delete this->current_node;
+    if(this->current_node != nullptr){
+        delete this->current_node;
+    }
 }
 
 void Traverser::traverse(){
@@ -56,52 +50,63 @@ void Traverser::traverse(){
 
     if (this->starting_nodes_set && this->possible_starting_nodes.size() > 0){
         this->init_playground();
-        while (this->nodes.size() > 0){
-            this->choose_shortest_path();
-        }
+        this->randomize_parents_and_set_fitness();
     }
 }
 
-std::pair<int,double> Traverser::closest_linear(std::vector<std::pair<size_t,size_t>> &vals){
-    double smallest_dst = INT_MAX;
-    int smallest_index = -1;
 
-    for(size_t i = vals[0].first; i < vals[0].second; i++){
-        if(this->nodes[i] != *(this->current_node)){
-            
-            double cmp_dist = dist_calc(*this->current_node, nodes[i]);
-            if (cmp_dist < smallest_dst){
-                smallest_dst = cmp_dist;
-                smallest_index = i;
-            }
-        }
-        
-    }
-    return std::pair<int,double>(smallest_index,smallest_dst);
+void Traverser::make_children(){
+
 }
 
-void Traverser::choose_shortest_path(){
-    // Todo call function to spawn threads and compute this stuff.
-    std::pair<int,double> index_distance = {};
-    std::vector<std::pair<size_t,size_t>> vals = calc_clusters_for_threads();
-    if (this->nodes.size() > 1000){
-        index_distance = this->closest_parallel(vals);
-    }
-    else{
-        index_distance = this->closest_linear(vals);
-    }
+Node random_parent(){
+}
 
-    if (index_distance.first == -1){
-        std::cout << "no closest dist, closing cycle" << std::endl;
-        this->close_cycle(); // Since we couldn't find a shortest path we assume we are done here.
-        return;
+std::vector<double> calc_probabilities(std::vector<double> &fitness_scores){
+    double total_fitness = 0;
+    std::vector<double> probabilities = {};
+
+    for(unsigned i = 0; i < fitness_scores.size(); i++){
+        total_fitness += fitness_scores[i];
     }
+    for(unsigned i = 0; i < fitness_scores.size(); i++){
+        probabilities.push_back(fitness_scores[i] / total_fitness);
+    }
+    return probabilities;
+}
+
+void Traverser::select_parents(){
+    std::mt19937 gen(std::random_device{}());
+    std::vector<double> probabilities = calc_probabilities(this->fitness_scores);
+    std::discrete_distribution<std::size_t> d{probabilities.begin(), probabilities.end()};
+    auto parents_a = this->parent_population[d(gen)];
+    auto parents_b = this->parent_population[d(gen)];
     
-    delete this->current_node;
-    this->current_node = new Node(this->nodes[index_distance.first]);
-    this->nodes.erase(this->nodes.begin() + index_distance.first);
-    this->cycle.push_back(*(this->current_node));    
-    this->distance_traversed += index_distance.second;
+}
+
+void Traverser::randomize_parents_and_set_fitness(){
+    int index, cnt = 0;
+    std::ofstream r;
+    r.open(CYCLE_FILE, std::ofstream::out | std::ofstream::trunc);
+    r.close();
+    while (cnt < 10){
+        cnt++;
+        while (this->nodes.size() > 1){
+            index = rand()%(this->nodes.size());
+            this->distance_traversed += dist_calc((*this->current_node),this->nodes[index]);
+            delete this->current_node;
+            this->current_node = new Node(this->nodes[index]);
+            this->cycle.push_back(*this->current_node);
+            this->nodes.erase(this->nodes.begin() + index);
+        }
+        this->fitness_scores.push_back(this->distance_traversed);
+        this->close_cycle();
+        this->initialize_nodes();
+        this->init_playground();
+    }
+    this->set_fitness_scores();
+    this->make_children();
+    this->mutate();
 }
 
 void Traverser::initialize_nodes(){
@@ -145,7 +150,7 @@ void Traverser::init_playground(){
 }
 
 void Traverser::get_data(){
-    std::ifstream data_file("../data16k.txt");
+    std::ifstream data_file("../data128.txt");
     std::string line;
 
     while(getline(data_file,line)){
@@ -162,20 +167,47 @@ void Traverser::get_data(){
 }
 
 // For serializing the cycle to json object
-void to_json(nlohmann::json &j, const Node &node) {
+__always_inline void to_json(nlohmann::json &j, const Node &node) {
     j = node.serialize();
 }
+
+__always_inline void from_json(nlohmann::json &j, Node &node){
+    //
+}
+
+
 
 void Traverser::dump_cycle(){
     std::string start_coord = "(" + std::to_string(this->cycle[0].x) + "," + std::to_string(this->cycle[0].y) + ")";
     nlohmann::json data;
-    data[start_coord] = this->distance_traversed; // {this->distance_traversed, this->cycle};
-    std::ofstream o;
-    o.open("cycles_16k.ndjson", std::ios_base::app);
+    data["cycle"] = this->cycle;
+    data["dist"] = this->distance_traversed;
+    data["start_coord"] = start_coord;
+    
+    // data[start_coord] = this->distance_traversed; // {this->distance_traversed, this->cycle};
+    std::ofstream o, r;
+    o.open(CYCLE_FILE, std::ios_base::app);
     o << data << std::endl;
+    o.close();
+}
+
+void Traverser::mutate(){
+    std::cout << "mutate called" << std::endl;
+    nlohmann::json data;
+    std::ifstream f(CYCLE_FILE);
+    std::string line;
+    while (std::getline(f, line)){
+        std::stringstream ss(line);
+        ss >> data;
+        // std::cout << data["dist"] << std::endl;
+    }
+
 }
 
 void Traverser::reset_traversal(){
+    if(this->current_node != nullptr){
+        delete this->current_node;
+    }
     this->traverse();
 }
 
@@ -184,35 +216,10 @@ void Traverser::close_cycle(){
     this->distance_traversed += dist_calc(*this->current_node, this->cycle[0]);
     std::cout << "cycle len: " << this->cycle.size() << std::endl;
     std::cout << "distance traversed: " << this->distance_traversed << std::endl;
-    this->dump_cycle();
-    this->reset_traversal();
+    this->parent_population.push_back(this->cycle);
+    // this->dump_cycle();
+    // this->reset_traversal();
     // exit(EXIT_SUCCESS);
-}
-
-
-
-std::pair<int,double> Traverser::closest_parallel(std::vector<std::pair<size_t,size_t>> &vals){
-    std::vector<std::thread> threads = {};
-    
-    // index of what it found as smallest, and the distance
-    std::pair<int,double> indices_and_distances[NUM_THREADS]; 
-    
-    // Spawn threads to calculate closest node for each cluster on this->nodes
-    for(size_t i = 0; i < vals.size(); i++){
-        std::thread th(index_distance_th(), std::ref(*this->current_node), std::ref(this->nodes), std::ref(vals[i].first), std::ref(vals[i].second), std::ref(indices_and_distances[i]));
-        threads.push_back(std::move(th));
-    }
-    
-    // We gots to join them before we can do our operations
-    std::pair<int,double> smallest_dist = {-1,INT_MAX};
-    for(size_t i = 0; i < vals.size(); i++){
-        threads[i].join();
-        if (indices_and_distances[i].second < smallest_dist.second){
-            smallest_dist = indices_and_distances[i];
-        }
-    }
-
-    return smallest_dist;
 }
 
 
