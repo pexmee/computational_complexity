@@ -26,7 +26,9 @@
 #define MAX_Y
 #define INT_MAX 2147483647
 #define CLUSTER_SIZE 500
-#define MUTATION_RATE 0.2
+#define MUTATION_RATE 0.3
+#define ITERATIONS 1000000
+#define POPULATION_SIZE 100
 
 class Traverser{
     
@@ -45,26 +47,20 @@ class Traverser{
         Traverser();
         ~Traverser();
         void graph();
-        void traverse();
         void initialize_nodes();
-        void init_playground();
-        void weigh_nodes();
-        void choose_shortest_path();
         void close_cycle();
-        void reset_traversal();
         double calc_dist(Node &node);
-        void closest_wrapper();
-        void dump_cycle();
+        void dump_cycle(double fitness, std::vector<Node> &cycle);
         void mutate();
-        void set_fitness_scores();
         void copulate(std::vector<std::vector<std::vector<Node>>> &parents);
-        void randomize_parents_and_set_fitness();
+        void randomize_parents();
         std::vector<std::vector<std::vector<Node>>> select_parents(); // This is obviously stupid but I shall fix this later on.
         void get_data(); // Need to be modified a bit from python version
         std::vector<std::pair<size_t,size_t>> calc_clusters_for_threads();
         Node pop_possible_starting_nodes();
-        std::pair<int,double> closest_parallel(std::vector<std::pair<size_t,size_t>> &vals);
-        std::pair<int,double> closest_linear(std::vector<std::pair<size_t,size_t>> &vals);
+        void genetic_algorithm_driver();
+        std::vector<std::vector<std::vector<Node>>> select_parents(std::vector<std::vector<Node>> &population);
+        void calculate_all_fitness(std::vector<std::vector<Node>> &population);
 };
 
 

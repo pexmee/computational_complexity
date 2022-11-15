@@ -5,7 +5,7 @@ double dist_calc(Node &current_node, Node &neighbor){
 }
 
 size_t NUM_THREADS = 0;
-
+double CURRENT_BEST = INT_MAX;
 
 
 /**
@@ -46,20 +46,6 @@ Traverser::~Traverser(){
     }
 }
 
-void Traverser::traverse(){
-    this->initialize_nodes();
-    std::cout << "initialized nodes" << std::endl;
-
-    if (this->starting_nodes_set && this->possible_starting_nodes.size() > 0){
-        this->init_playground();
-        this->randomize_parents_and_set_fitness();
-    }
-}
-
-
-
-Node random_parent(){
-}
 
 std::vector<double> calc_probabilities(std::vector<double> &fitness_scores){
     double total_fitness = 0;
@@ -74,14 +60,14 @@ std::vector<double> calc_probabilities(std::vector<double> &fitness_scores){
     return probabilities;
 }
 
-std::vector<std::vector<std::vector<Node>>> Traverser::select_parents(){
+std::vector<std::vector<std::vector<Node>>> Traverser::select_parents(std::vector<std::vector<Node>> &population){
     std::mt19937 gen(std::random_device{}());
     std::vector<double> probabilities = calc_probabilities(this->fitness_scores);
     std::discrete_distribution<std::size_t> d{probabilities.begin(), probabilities.end()};
     std::vector<std::vector<Node>> parents_a, parents_b;
     for(unsigned i = 0; i < probabilities.size(); i++){
-        parents_a.push_back(this->parent_population[d(gen)]);
-        parents_b.push_back(this->parent_population[d(gen)]);
+        parents_a.push_back(population[d(gen)]);
+        parents_b.push_back(population[d(gen)]);
     }
     std::vector<std::vector<std::vector<Node>>> ret = {parents_a, parents_b};
 
@@ -89,8 +75,10 @@ std::vector<std::vector<std::vector<Node>>> Traverser::select_parents(){
 }
 
 std::vector<Node> make_child(std::vector<Node> &parent_a, std::vector<Node> &parent_b){
-    std::vector<Node> child(parent_a.size());
-    std::copy(parent_a.begin(), parent_a.begin() + 5, child);
+    std::vector<Node> child = {};
+    for(unsigned i = 0; i< parent_a.size()/3; i++){
+        child.push_back(parent_a[i]);
+    }
 
     for (unsigned i = 0; i < parent_b.size(); i++){
         // If the node isn't found in the child
@@ -104,49 +92,100 @@ std::vector<Node> make_child(std::vector<Node> &parent_a, std::vector<Node> &par
 
 
 void Traverser::mutate(){
-    
     for (unsigned i = 0; i < this->new_generation.size(); i++){
         for (unsigned k = 0; k < int(MUTATION_RATE * this->nodes.size()); k++){
-            int a = rand()%(this->nodes.size());
-            int b = rand()%(this->nodes.size());
+            int a = rand()%(this->nodes.size()-1);
+            int b = rand()%(this->nodes.size()-1);
             Node tmpa = this->new_generation[i][a], tmpb = this->new_generation[i][b];
             this->new_generation[i][a] = tmpb;
             this->new_generation[i][b] = tmpa; 
         }
     }
-} 
+}
 
 void Traverser::copulate(std::vector<std::vector<std::vector<Node>>> &parents){
-    // Not sure how this should work actually but let's stop here for today.
+    std::vector<std::vector<Node>> temp_new_generation;
+
     for (unsigned i = 0; i < parents[0].size(); i++){ // Since they are both the same size anyway.
         std::vector<Node> child = make_child(parents[0][i], parents[1][i]);
-        this->new_generation.push_back(child);
+        temp_new_generation.push_back(child);
+    }
+    this->new_generation = temp_new_generation;
+}
+
+
+std::pair<int,double> find_best_index_and_fitness(std::vector<double> &fitness_scores){
+    std::pair<int,double> best_fitness = std::pair<int,double>(-1,INT_MAX);
+    for (unsigned i = 0; i < fitness_scores.size(); i++){
+        if(fitness_scores[i] < best_fitness.second){
+            best_fitness.second = fitness_scores[i];
+            best_fitness.first = i;
+        }
+    }
+    return best_fitness;
+}
+
+void Traverser::genetic_algorithm_driver(){
+    int n = 0;
+    this->initialize_nodes();
+    this->randomize_parents();
+    this->calculate_all_fitness(this->parent_population);
+    std::vector<std::vector<std::vector<Node>>> parents = this->select_parents(this->parent_population);
+    this->copulate(parents);
+    this->mutate();
+    std::pair<int,double> best = find_best_index_and_fitness(this->fitness_scores);
+    this->dump_cycle(best.second, this->new_generation[best.first]);
+    
+    while(true){
+        n++;
+        this->calculate_all_fitness(this->new_generation);   
+        parents = this->select_parents(this->new_generation);
+        this->copulate(parents);
+        this->mutate();
+        std::pair<int,double> best = find_best_index_and_fitness(this->fitness_scores);
+        if(best.second < CURRENT_BEST){
+            CURRENT_BEST = best.second;
+            std::cout << "Found new shorter cycle " << CURRENT_BEST << "\n";
+            this->dump_cycle(best.second, this->new_generation[best.first]);
+        }
     }
 }
 
-void Traverser::randomize_parents_and_set_fitness(){
+
+void Traverser::calculate_all_fitness(std::vector<std::vector<Node>> &population){
+    this->fitness_scores.clear();
+
+    for (unsigned i = 0; i < population.size(); i++){
+        this->distance_traversed = 0;
+
+        for(unsigned k = 0; k < population[i].size()-1; k++){ 
+            this->distance_traversed += dist_calc(population[i][k],population[i][k+1]);
+        }
+        // To add the fitness for the last node which is supposed to connect to the first node
+        this->distance_traversed += dist_calc(population[i][0],population[i][population[i].size()-1]);
+        this->fitness_scores.push_back(this->distance_traversed);
+    }
+    
+}
+
+void Traverser::randomize_parents(){
     int index, cnt = 0;
-    std::ofstream r;
-    r.open(CYCLE_FILE, std::ofstream::out | std::ofstream::trunc);
-    r.close();
-    while (cnt < 20){
+    // std::ofstream r;
+    // r.open(CYCLE_FILE, std::ofstream::out | std::ofstream::trunc); // To wipe the file for each new iteration.
+    // r.close();
+    while (cnt < POPULATION_SIZE){
         cnt++;
         while (this->nodes.size() > 1){
             index = rand()%(this->nodes.size());
-            this->distance_traversed += dist_calc((*this->current_node),this->nodes[index]);
-            delete this->current_node;
             this->current_node = new Node(this->nodes[index]);
             this->cycle.push_back(*this->current_node);
+            // delete this->current_node;
             this->nodes.erase(this->nodes.begin() + index);
         }
-        this->fitness_scores.push_back(this->distance_traversed);
-        this->close_cycle();
+        this->parent_population.push_back(this->cycle);
         this->initialize_nodes();
-        this->init_playground();
     }
-    this->set_fitness_scores();
-    // this->make_children();
-    this->mutate();
+    std::cout << parent_population.size() << std::endl;
 }
 
 void Traverser::initialize_nodes(){
@@ -155,42 +194,10 @@ void Traverser::initialize_nodes(){
     this->cycle.clear();
     this->distance_traversed = 0;
     this->get_data();
-    
-
-    if (!this->starting_nodes_set){
-        // std::cout << "this nodes size: " << this->nodes.size() << std::endl;
-        this->possible_starting_nodes = this->nodes;
-        this->starting_nodes_set = true;
-        // std::cout << "starting nodes set: " << this->possible_starting_nodes.size() << std::endl;
-    }
-}
-
-Node Traverser::pop_possible_starting_nodes(){
-    Node ret = this->possible_starting_nodes[this->possible_starting_nodes.size()-1];
-    this->possible_starting_nodes.pop_back();
-    return ret;
-}
-
-void Traverser::init_playground(){
-    if (this->nodes.size() > 0){ // Sanity check
-        if (this->possible_starting_nodes.size() > 0 && this->cycle.size() == 0){
-            this->current_node = new Node(this->pop_possible_starting_nodes());
-            this->cycle.push_back(*this->current_node);
-            
-            // Erase the current node from the nodes
-            for(unsigned i = 0; i < this->nodes.size(); i++){
-                if (*(this->current_node) == this->nodes[i]){
-                    std::cout << "removing node" << std::endl;
-                    this->nodes.erase(this->nodes.begin() + i); // remove the node
-                    break;
-                }
-            }
-        }
-    }
 }
 
 void Traverser::get_data(){
-    std::ifstream data_file("../data128.txt");
+    std::ifstream data_file("../data16k.txt");
     std::string line;
 
     while(getline(data_file,line)){
@@ -211,18 +218,18 @@ __always_inline void to_json(nlohmann::json &j, const Node &node) {
     j = node.serialize();
 }
 
-__always_inline void from_json(nlohmann::json &j, Node &node){
+// __always_inline void from_json(nlohmann::json &j, Node &node){
     //
-}
+// }
 
 
 
-void Traverser::dump_cycle(){
-    std::string start_coord = "(" + std::to_string(this->cycle[0].x) + "," + std::to_string(this->cycle[0].y) + ")";
+void Traverser::dump_cycle(double fitness, std::vector<Node> &cycle){
+    std::string start_coord = "(" + std::to_string(cycle[0].x) + "," + std::to_string(cycle[0].y) + ")";
     nlohmann::json data;
-    data["cycle"] = this->cycle;
-    data["dist"] = this->distance_traversed;
+    data["dist"] = fitness;
     data["start_coord"] = start_coord;
+    data["zcycle"] = cycle; // zcycle to order it to the back of the ndjson
     
     // data[start_coord] = this->distance_traversed; // {this->distance_traversed, this->cycle};
     std::ofstream o, r;
@@ -232,19 +239,12 @@ void Traverser::dump_cycle(){
 }
 
 
-void Traverser::reset_traversal(){
-    if(this->current_node != nullptr){
-        delete this->current_node;
-    }
-    this->traverse();
-}
 
 void Traverser::close_cycle(){
     this->cycle.push_back(this->cycle[0]);
     this->distance_traversed += dist_calc(*this->current_node, this->cycle[0]);
     std::cout << "cycle len: " << this->cycle.size() << std::endl;
     std::cout << "distance traversed: " << this->distance_traversed << std::endl;
-    this->parent_population.push_back(this->cycle);
     // this->dump_cycle();
     // this->reset_traversal();
     // exit(EXIT_SUCCESS);
