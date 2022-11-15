@@ -30,6 +30,8 @@ size_t NUM_THREADS = 0;
 
 Traverser::Traverser(){
     this->nodes = {};
+    this->parent_population = {};
+    this->new_generation = {};
     this->cycle = {};
     this->possible_starting_nodes = {};
     this->current_node = nullptr;
@@ -55,9 +57,6 @@ void Traverser::traverse(){
 }
 
 
-void Traverser::make_children(){
-
-}
 
 Node random_parent(){
 }
@@ -75,13 +74,54 @@ std::vector<double> calc_probabilities(std::vector<double> &fitness_scores){
     return probabilities;
 }
 
-void Traverser::select_parents(){
+std::vector<std::vector<std::vector<Node>>> Traverser::select_parents(){
     std::mt19937 gen(std::random_device{}());
     std::vector<double> probabilities = calc_probabilities(this->fitness_scores);
     std::discrete_distribution<std::size_t> d{probabilities.begin(), probabilities.end()};
-    auto parents_a = this->parent_population[d(gen)];
-    auto parents_b = this->parent_population[d(gen)];
+    std::vector<std::vector<Node>> parents_a, parents_b;
+    for(unsigned i = 0; i < probabilities.size(); i++){
+        parents_a.push_back(this->parent_population[d(gen)]);
+        parents_b.push_back(this->parent_population[d(gen)]);
+    }
+    std::vector<std::vector<std::vector<Node>>> ret = {parents_a, parents_b};
+
+    return ret;
+}
+
+std::vector<Node> make_child(std::vector<Node> &parent_a, std::vector<Node> &parent_b){
+    std::vector<Node> child(parent_a.size());
+    std::copy(parent_a.begin(), parent_a.begin() + 5, child);
+
+    for (unsigned i = 0; i < parent_b.size(); i++){
+        // If the node isn't found in the child
+        if(std::find(child.begin(), child.end(),parent_b[i]) == child.end()){
+            child.push_back(parent_b[i]);
+        }
+    }
+    return child;
+}
+
+
+
+void Traverser::mutate(){
     
+    for (unsigned i = 0; i < this->new_generation.size(); i++){
+        for (unsigned k = 0; k < int(MUTATION_RATE * this->nodes.size()); k++){
+            int a = rand()%(this->nodes.size());
+            int b = rand()%(this->nodes.size());
+            Node tmpa = this->new_generation[i][a], tmpb = this->new_generation[i][b];
+            this->new_generation[i][a] = tmpb;
+            this->new_generation[i][b] = tmpa; 
+        }
+    }
+} 
+
+void Traverser::copulate(std::vector<std::vector<std::vector<Node>>> &parents){
+    // Not sure how this should work actually but let's stop here for today.
+    for (unsigned i = 0; i < parents[0].size(); i++){ // Since they are both the same size anyway.
+        std::vector<Node> child = make_child(parents[0][i], parents[1][i]);
+        this->new_generation.push_back(child);
+    }
 }
 
 void Traverser::randomize_parents_and_set_fitness(){
@@ -89,7 +129,7 @@ void Traverser::randomize_parents_and_set_fitness(){
     std::ofstream r;
     r.open(CYCLE_FILE, std::ofstream::out | std::ofstream::trunc);
     r.close();
-    while (cnt < 10){
+    while (cnt < 20){
         cnt++;
         while (this->nodes.size() > 1){
             index = rand()%(this->nodes.size());
@@ -105,7 +145,7 @@ void Traverser::randomize_parents_and_set_fitness(){
         this->init_playground();
     }
     this->set_fitness_scores();
-    this->make_children();
+    // this->make_children();
     this->mutate();
 }
 
@@ -191,18 +231,6 @@ void Traverser::dump_cycle(){
     o.close();
 }
 
-void Traverser::mutate(){
-    std::cout << "mutate called" << std::endl;
-    nlohmann::json data;
-    std::ifstream f(CYCLE_FILE);
-    std::string line;
-    while (std::getline(f, line)){
-        std::stringstream ss(line);
-        ss >> data;
-        // std::cout << data["dist"] << std::endl;
-    }
-
-}
 
 void Traverser::reset_traversal(){
     if(this->current_node != nullptr){
