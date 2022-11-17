@@ -17,19 +17,24 @@
 #include <time.h>
 #include <random>
 #include <ctime>
+#include "../headers/node.hpp"
 
 
 #define DATA16K "../data16k.txt"
 #define INT_MAX 2147483647
 #define DATA128 "../data128.txt"
+#define CYCLE_FILE_16K "cycles_16k.ndjson"
+#define CYCLE_FILE_128 "cycles_128.ndjson"
 #define POPULATION 20
 #define MUTATION_RATE 0.3
-auto def_gen = std::default_random_engine{};
-std::mt19937 gen(std::random_device{}());
 
-std::vector<double> calc_probabilities(std::vector<double> fitness_scores){
+using namespace std;
+auto def_gen = default_random_engine{};
+mt19937 gen(random_device{}());
+
+vector<double> calc_probabilities(const vector<double> &fitness_scores){
     double total_fitness = 0;
-    std::vector<double> probabilities = {};
+    vector<double> probabilities = {};
 
     for(size_t i = 0; i < fitness_scores.size(); i++){
         total_fitness += fitness_scores[i];
@@ -40,32 +45,26 @@ std::vector<double> calc_probabilities(std::vector<double> fitness_scores){
     return probabilities;
 }
 
-__always_inline double calc_dist(std::vector<int> &a, std::vector<int> &b){
-    return std::sqrt(std::pow((a[0] - b[0]),2) + std::pow((a[1] - b[1]),2));
+__always_inline double calc_dist(Node &a, Node &b){
+    return sqrt(pow((a.x - b.x),2) + pow((a.y - b.y),2));
 
 }
 
-std::vector<std::vector<std::vector<int>>> genesis(std::vector<std::vector<int>> nodes){
-    std::vector<std::vector<std::vector<int>>> population_set = {};
-    std::vector<std::vector<int>> solution = {};
-    std::vector<std::vector<int>> tmp = nodes;
+vector<vector<Node>> genesis(vector<Node> nodes){
+    vector<vector<Node>> population_set = {};
+    vector<Node> solution = nodes;
 
     for(size_t i = 0; i < POPULATION; i++){
-
-        solution = {};
-        nodes = tmp;
-        std::shuffle(std::begin(tmp), std::end(tmp), def_gen);
-        solution = tmp;
-        tmp = nodes;
-            
+        solution = nodes;
+        shuffle(begin(solution), end(solution), def_gen);
         population_set.push_back(solution);
     }
     return population_set;
 }
 
-double fitness_eval(std::vector<std::vector<int>> city_list){
+double fitness_eval(const vector<Node> &city_list){
     double total = 0;
-    std::vector<int> a, b;
+    Node a, b;
     for (size_t i = 0; i < city_list.size()-1; i++){
         a = city_list[i];
         b = city_list[i+1];
@@ -74,8 +73,8 @@ double fitness_eval(std::vector<std::vector<int>> city_list){
     return total;
 }
 
-std::vector<double> get_all_fitness(std::vector<std::vector<std::vector<int>>> population_set){
-    std::vector<double> fitness_list;
+vector<double> get_all_fitness(const vector<vector<Node>> &population_set){
+    vector<double> fitness_list;
 
     for(unsigned i = 0; i < population_set.size(); i++){
         fitness_list.push_back(fitness_eval(population_set[i]));
@@ -84,7 +83,7 @@ std::vector<double> get_all_fitness(std::vector<std::vector<std::vector<int>>> p
     return fitness_list;
 }
 
-double sum_total_fit(std::vector<double> fitness_list){
+double sum_total_fit(const vector<double> &fitness_list){
     double total = 0;
 
     for (size_t i = 0; i < fitness_list.size(); i++){
@@ -93,27 +92,27 @@ double sum_total_fit(std::vector<double> fitness_list){
     return total;
 }
 
-std::vector<std::vector<std::vector<std::vector<int>>>> progenitor_selection(std::vector<std::vector<std::vector<int>>> population_set, std::vector<double> fitness_list){
-    std::vector<std::vector<std::vector<int>>> parents_a, parents_b;
-    std::vector<double> probabilities = calc_probabilities(fitness_list);
-    std::discrete_distribution<std::size_t> d{probabilities.begin(), probabilities.end()};
+vector<vector<vector<Node>>> progenitor_selection(const vector<vector<Node>> &population_set, const vector<double> &fitness_list){
+    vector<vector<Node>> parents_a, parents_b;
+    vector<double> probabilities = calc_probabilities(fitness_list);
+    discrete_distribution<size_t> d{probabilities.begin(), probabilities.end()};
 
     for(size_t i = 0; i < probabilities.size(); i++){
         parents_a.push_back(population_set[d(gen)]);
         parents_b.push_back(population_set[d(gen)]);
     }
-    std::vector<std::vector<std::vector<std::vector<int>>>> ret = {parents_a, parents_b};
+    vector<vector<vector<Node>>> ret = {parents_a, parents_b};
     return ret;
 }
 
-std::vector<std::vector<int>> mate_progenitors(std::vector<std::vector<int>> prog_a, std::vector<std::vector<int>> prog_b){
-    std::vector<std::vector<int>> offspring;
+vector<Node> mate_progenitors(const vector<Node> &prog_a, const vector<Node> &prog_b){
+    vector<Node> offspring;
     for(size_t i = 0; i < prog_a.size()/3; i++){
         offspring.push_back(prog_a[i]);
     }
 
     for(size_t i = 0; i < prog_b.size(); i++){
-        if (std::find(offspring.begin(), offspring.end(), prog_b[i]) == offspring.end()){
+        if (find(offspring.begin(), offspring.end(), prog_b[i]) == offspring.end()){
             offspring.push_back(prog_b[i]);
         }
     }
@@ -121,85 +120,107 @@ std::vector<std::vector<int>> mate_progenitors(std::vector<std::vector<int>> pro
     return offspring;
 }
 
-std::vector<std::vector<std::vector<int>>> mate_population(std::vector<std::vector<std::vector<std::vector<int>>>> progenitor_list){
-    std::vector<std::vector<std::vector<int>>> new_population_set;
+vector<vector<Node>> mate_population(const vector<vector<vector<Node>>> &progenitor_list){
+    vector<vector<Node>> new_population_set;
     
     for (size_t i = 0; i < progenitor_list[0].size(); i++){
-        std::vector<std::vector<int>> prog_a = progenitor_list[0][i];
-        std::vector<std::vector<int>> prog_b = progenitor_list[1][i];
-        std::vector<std::vector<int>> offspring = mate_progenitors(prog_a, prog_b);
+        vector<Node> prog_a = progenitor_list[0][i];
+        vector<Node> prog_b = progenitor_list[1][i];
+        vector<Node> offspring = mate_progenitors(prog_a, prog_b);
         new_population_set.push_back(offspring);
     }
 
     return new_population_set;
 }
 
-std::vector<std::vector<int>> mutate_offspring(std::vector<std::vector<int>> offspring){
+void mutate_offspring(vector<Node> &offspring){
     int a,b;
     for (size_t i = 0; i < offspring.size()*MUTATION_RATE; i++){
         a = rand()%(offspring.size());
         b = rand()%(offspring.size());
-        std::vector<int> tmp_a = offspring[a];
-        std::vector<int> tmp_b = offspring[b];
+        Node tmp_a = offspring[a];
+        Node tmp_b = offspring[b];
         offspring[a] = tmp_b;
         offspring[b] = tmp_a;
     }
-    return offspring;
 }
 
-std::vector<std::vector<std::vector<int>>> mutate_population(std::vector<std::vector<std::vector<int>>> new_population_set){
-    std::vector<std::vector<std::vector<int>>> mutated_pop;
+void mutate_population(vector<vector<Node>> &new_population_set){
     for(size_t i = 0; i < new_population_set.size(); i++){
-        mutated_pop.push_back(mutate_offspring(new_population_set[i]));
+        mutate_offspring(new_population_set[i]);
     }
-    return mutated_pop;
 }
 
-double get_smallest_fitness(std::vector<double> fitness_list){
-    double smallest = INT_MAX;
+pair<double,int> get_best_fitness(const vector<double> &fitness_list){
+    pair<double,int> best_and_index = {INT_MAX, -1};
     for (size_t i = 0; i < fitness_list.size(); i++){
-        if (fitness_list[i] < smallest){
-            smallest = fitness_list[i];
+        if (fitness_list[i] < best_and_index.first){
+            best_and_index.first = fitness_list[i];
+            best_and_index.second = i;
         }
     }
-    return smallest;
+    return best_and_index;
 }
 
-int main(){
+// For serializing the cycle to json object
+__always_inline void to_json(nlohmann::json &j, const Node &node) {
+    j = node.serialize();
+}
+
+void dump_cycle(pair<double,int> &best_solution, const vector<vector<Node>> &pop, ofstream &o){
     time_t now;
-    std::ifstream data_file(DATA16K);
-    std::string line;
-    std::vector<std::vector<int>> nodes;
+    now = time(nullptr);
+    char* dt = ctime(&now);
+    cout << dt << " found new best solution: " << fixed << best_solution.first << endl;
+    string start_coord = "(" + to_string(pop[best_solution.second][0].x) + "," + to_string(pop[best_solution.second][0].y) + ")";
+    nlohmann::json data;
+    data["dist"] = best_solution.first;
+    data["start_coord"] = start_coord;
+    data["timestamp"] = dt;
+    data["zcycle"] = pop[best_solution.second]; // zcycle to order it to the back of the ndjson
+    o << data << endl;
+    
+}
+
+
+int main(){
+    ofstream o;
+    ifstream data_file(DATA128);
+    o.open(CYCLE_FILE_128, ios_base::app);
+    string line;
+    vector<Node> nodes;
+
     while(getline(data_file,line)){
         int x, y;
-        std::stringstream ss(line);
+        stringstream ss(line);
         ss >> x;
         ss >> y;
-        std::vector<int> node = {x,y};
-        if (std::find(nodes.begin(), nodes.end(), node) == nodes.end()){ // remove duplicates.
+        Node node(x,y);
+        if (find(nodes.begin(), nodes.end(), node) == nodes.end()){ // remove duplicates.
             nodes.push_back(node);
         }
     }
-    std::cout << "nodes: " << nodes.size() << std::endl;
+    cout << "nodes: " << nodes.size() << endl;
+    Node **arr = new Node*[nodes.size()];
 
-    std::vector<std::vector<std::vector<int>>> population_set = genesis(nodes);
-    std::vector<double> fitness_list = get_all_fitness(population_set);
-    std::vector<std::vector<std::vector<std::vector<int>>>> progenitor_list = progenitor_selection(population_set, fitness_list);
-    std::vector<std::vector<std::vector<int>>> new_population_set = mate_population(progenitor_list);
-    std::vector<std::vector<std::vector<int>>> mutated_pop = mutate_population(new_population_set);
-    double best_solution = INT_MAX;
+    vector<vector<Node>> population_set = genesis(nodes);
+    vector<double> fitness_list = get_all_fitness(population_set);
+    vector<vector<vector<Node>>> progenitor_list = progenitor_selection(population_set, fitness_list);
+    vector<vector<Node>> new_population_set = mate_population(progenitor_list);
+    mutate_population(new_population_set);
+    pair<double,int> best_solution = {INT_MAX,-1};
+    pair<double,int> smallest_current = {INT_MAX,-1};
 
     while (true){
-        fitness_list = get_all_fitness(mutated_pop);
-        double smallest_current = get_smallest_fitness(fitness_list);
-        if (smallest_current < best_solution){
-            best_solution = smallest_current;
-            now = time(nullptr);
-            char* dt = ctime(&now);
-            std::cout << dt << " found new best solution: " << std::fixed << best_solution << std::endl;
+        fitness_list = get_all_fitness(new_population_set);
+        smallest_current = get_best_fitness(fitness_list);
+        if (smallest_current.first < best_solution.first){
+            best_solution.first = smallest_current.first;
+            best_solution.second = smallest_current.second;
+            dump_cycle(best_solution, new_population_set, o);
         }
         progenitor_list = progenitor_selection(population_set, fitness_list);
         new_population_set = mate_population(progenitor_list);
-        mutated_pop = mutate_population(new_population_set);
+        mutate_population(new_population_set);
     }
 }
