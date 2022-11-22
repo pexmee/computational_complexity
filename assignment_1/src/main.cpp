@@ -1,12 +1,9 @@
 // #include "../headers/traverser.hpp"
 #include <iostream>
-#include <fstream>
-#include <vector>
 #include <vector>
 #include <cmath>
 #include <iterator>
 #include <algorithm>
-#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -18,7 +15,7 @@
 #include <random>
 #include <ctime>
 #include "../headers/node.hpp"
-
+#include <numeric>
 
 #define DATA16K "../data16k.txt"
 #define INT_MAX 2147483647
@@ -28,30 +25,35 @@
 #define POPULATION 20
 #define MUTATION_RATE 0.3
 
+std::string INFILE = DATA16K;
+std::string OUTFILE = CYCLE_FILE_16K;
+size_t SIZE;
+
 using namespace std;
 auto def_gen = default_random_engine{};
 mt19937 gen(random_device{}());
 
-vector<double> calc_probabilities(const vector<double> &fitness_scores){
-    double total_fitness = 0;
-    vector<double> probabilities = {};
+double sum_total_fit(const vector<double> &fitness_list){
+    return std::accumulate(fitness_list.begin(),fitness_list.end(), 0.0);
+}
 
-    for(size_t i = 0; i < fitness_scores.size(); i++){
-        total_fitness += fitness_scores[i];
-    }
+vector<double> calc_probabilities(const vector<double> &fitness_scores){
+    double total_fitness = sum_total_fit(fitness_scores);
+    vector<double> probabilities;
+
     for(size_t i = 0; i < fitness_scores.size(); i++){
         probabilities.push_back(fitness_scores[i] / total_fitness);
     }
     return probabilities;
 }
 
-__always_inline double calc_dist(Node &a, Node &b){
+__always_inline double calc_dist(const Node &a,const Node &b){
     return sqrt(pow((a.x - b.x),2) + pow((a.y - b.y),2));
 
 }
 
 vector<vector<Node>> genesis(vector<Node> nodes){
-    vector<vector<Node>> population_set = {};
+    vector<vector<Node>> population_set;
     vector<Node> solution = nodes;
 
     for(size_t i = 0; i < POPULATION; i++){
@@ -64,12 +66,11 @@ vector<vector<Node>> genesis(vector<Node> nodes){
 
 double fitness_eval(const vector<Node> &city_list){
     double total = 0;
-    Node a, b;
+
     for (size_t i = 0; i < city_list.size()-1; i++){
-        a = city_list[i];
-        b = city_list[i+1];
-        total += calc_dist(a,b);
+        total += calc_dist(city_list[i],city_list[i+1]);
     }
+    total += calc_dist(city_list[0],city_list[city_list.size()-1]); // Because the last node will always have to connect back to the first.
     return total;
 }
 
@@ -83,30 +84,22 @@ vector<double> get_all_fitness(const vector<vector<Node>> &population_set){
     return fitness_list;
 }
 
-double sum_total_fit(const vector<double> &fitness_list){
-    double total = 0;
-
-    for (size_t i = 0; i < fitness_list.size(); i++){
-        total += fitness_list[i];
-    }
-    return total;
-}
-
-vector<vector<vector<Node>>> progenitor_selection(const vector<vector<Node>> &population_set, const vector<double> &fitness_list){
-    vector<vector<Node>> parents_a, parents_b;
+pair<vector<vector<Node>>,vector<vector<Node>>> progenitor_selection(const vector<vector<Node>> &population_set, const vector<double> &fitness_list){
     vector<double> probabilities = calc_probabilities(fitness_list);
     discrete_distribution<size_t> d{probabilities.begin(), probabilities.end()};
+    vector<vector<Node>> parents_a, parents_b;
 
     for(size_t i = 0; i < probabilities.size(); i++){
         parents_a.push_back(population_set[d(gen)]);
         parents_b.push_back(population_set[d(gen)]);
     }
-    vector<vector<vector<Node>>> ret = {parents_a, parents_b};
-    return ret;
+    
+    return pair<vector<vector<Node>>,vector<vector<Node>>>(parents_a, parents_b);
 }
 
 vector<Node> mate_progenitors(const vector<Node> &prog_a, const vector<Node> &prog_b){
     vector<Node> offspring;
+
     for(size_t i = 0; i < prog_a.size()/3; i++){
         offspring.push_back(prog_a[i]);
     }
@@ -120,14 +113,11 @@ vector<Node> mate_progenitors(const vector<Node> &prog_a, const vector<Node> &pr
     return offspring;
 }
 
-vector<vector<Node>> mate_population(const vector<vector<vector<Node>>> &progenitor_list){
+vector<vector<Node>> mate_population(const pair<vector<vector<Node>>,vector<vector<Node>>> &progenitor_list){
     vector<vector<Node>> new_population_set;
     
-    for (size_t i = 0; i < progenitor_list[0].size(); i++){
-        vector<Node> prog_a = progenitor_list[0][i];
-        vector<Node> prog_b = progenitor_list[1][i];
-        vector<Node> offspring = mate_progenitors(prog_a, prog_b);
-        new_population_set.push_back(offspring);
+    for (size_t i = 0; i < progenitor_list.first.size(); i++){
+        new_population_set.push_back((mate_progenitors(progenitor_list.first[i], progenitor_list.second[i])));
     }
 
     return new_population_set;
@@ -185,8 +175,8 @@ void dump_cycle(pair<double,int> &best_solution, const vector<vector<Node>> &pop
 
 int main(){
     ofstream o;
-    ifstream data_file(DATA128);
-    o.open(CYCLE_FILE_128, ios_base::app);
+    ifstream data_file(INFILE);
+    o.open(OUTFILE, ios_base::app);
     string line;
     vector<Node> nodes;
 
@@ -201,11 +191,14 @@ int main(){
         }
     }
     cout << "nodes: " << nodes.size() << endl;
-    Node **arr = new Node*[nodes.size()];
+    SIZE = nodes.size();
+    vector<vector<Node>> population_set;
+    population_set = genesis(nodes);
 
-    vector<vector<Node>> population_set = genesis(nodes);
-    vector<double> fitness_list = get_all_fitness(population_set);
-    vector<vector<vector<Node>>> progenitor_list = progenitor_selection(population_set, fitness_list);
+    vector<double> fitness_list;
+    fitness_list = get_all_fitness(population_set);
+    
+    pair<vector<vector<Node>>,vector<vector<Node>>> progenitor_list = progenitor_selection(population_set, fitness_list);
     vector<vector<Node>> new_population_set = mate_population(progenitor_list);
     mutate_population(new_population_set);
     pair<double,int> best_solution = {INT_MAX,-1};

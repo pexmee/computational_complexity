@@ -8,10 +8,10 @@ struct Node{
         int x;
         int y;
         
-        Node(); 
-        ~Node();
-        Node(int x, int y);
-        
+        // Constructors
+        Node(){this->x = this->y = -1;}; 
+        ~Node(){};
+        Node(int x, int y){this->x = x; this->y = y;};
         Node(const Node &other){
             this->x = other.x;
             this->y = other.y;
@@ -22,26 +22,28 @@ struct Node{
             return *this;
         }
 
+        // Operators
         bool operator==(const Node &other) const{
         return (this->x == other.x && this->y == other.y);
         }
-
         bool operator!=(const Node &other) const {
             return (this->x != other.x || this->y != other.y);
         }
 
+        // To help serialize to json.
         std::pair<int,int> serialize() const{
             return std::pair<int,int>(this->x, this->y);
         }
 
 };
 
+// To make it hashable.
 template <>
 struct std::hash<Node>{
     int x;
     int y;
 
-    std::size_t operator()(const Node& node){
+    std::size_t operator()(const Node& node) const{
         using std::size_t;
         using std::hash;
 
