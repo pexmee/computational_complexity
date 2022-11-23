@@ -5,9 +5,10 @@
 #include <cmath>
 #include <stack>
 #include <nlohmann/json.hpp>
+#include <assert.h>
 
-#define INFILE "../data16k.txt"
-#define OUTFILE "cycle16k.ndjson"
+#define INFILE "../data128.txt"
+#define OUTFILE "cycle128.ndjson"
 
 using namespace std;
 
@@ -15,35 +16,30 @@ __always_inline double dst(const Node &a, const Node &b){
     return sqrt(pow((a.x - b.x),2) + pow((a.y - b.y),2));
 }
 
-Node closest_node(Node &current, vector<Node> &nodes){
+Node closest_node(const Node &current, vector<Node> &pop, const vector<Node> &solution){
     pair<double,Node> closest = {INT32_MAX, Node()};
-    stack<Node,vector<Node>> ns(nodes);
-
+    stack<Node,vector<Node>> ns(pop);
+    
     double cdist;
-    int i = 0;
     while (ns.size() > 0){
-
-        if (ns.top() == current){
-            ns.pop();
-            i++;
-            continue;
-        }
         cdist = dst(current,ns.top());
 
-        if (cdist < closest.first){
+        if (
+            (ns.top() != current) && 
+            (cdist < closest.first) && 
+            (find(solution.begin(), solution.end(), ns.top()) == solution.end())
+           ){
             closest.first = cdist;
             closest.second = ns.top();
             ns.pop();
-            i++;
-            continue;
+
         }
         else{
             ns.pop();
-            i++;
-            continue;
         }
     }
-    nodes.erase(nodes.begin() + i);
+    // Here we could optimize by just keeping track of the index, but meh
+    pop.erase(find(pop.begin(), pop.end(), closest.second));
     return closest.second;
 }
 
@@ -62,11 +58,44 @@ __always_inline void to_json(nlohmann::json &j, const Node &node) {
     j = node.serialize();
 }
 
+char* get_timestamp(){
+    time_t now;
+    now = time(nullptr);
+    char* stamp = ctime(&now);
+    return stamp;
+}
+
+nlohmann::json wrap_data(vector<Node> &solution, const double best_score, char* stamp){
+    nlohmann::json data;
+    data["dist"] = best_score;
+    data["start_node"] = "(" + to_string(solution[0].x) + "," + to_string(solution[0].y) + ")";
+    data["timestamp"] = stamp;
+    data["zcycle"] = solution;
+    return data;
+}
+
+void dump_data(vector<Node> &solution, const double best_score){
+    ofstream o;
+    o.open(OUTFILE);
+    char* stamp = get_timestamp();
+    cout << stamp << "best solution is: " << fixed << best_score << endl;
+    nlohmann::json data = wrap_data(solution,best_score,stamp);
+    o << data << endl; 
+}
+
+Node reset(vector<Node> &pop, vector<Node> &nodes, vector<Node> &solution, size_t &i){
+    pop = nodes; 
+    solution.clear(); 
+    Node current = nodes[i]; 
+    pop.erase(pop.begin() + i); 
+    solution.push_back(current);
+    return current;
+}
 
 int main(){
     ifstream data_file(INFILE);
     string line;
-    vector<Node> nodes, solution;
+    vector<Node> nodes, solution, pop;
 
     while (getline(data_file,line)){
         int x, y;
@@ -79,38 +108,24 @@ int main(){
         }
     }
     double best_score = INT32_MAX, current_score = 0;
-
+    
     for (size_t i = 0; i < nodes.size(); i++){
-        solution.clear();
-        Node current = nodes[i]; // start node
-        nodes.erase(nodes.begin() + i);
-        solution.push_back(current);
-        std::vector<Node> n = nodes;
+        Node current = reset(pop,nodes,solution,i); 
 
-        for (size_t j = 0; j < nodes.size(); j++){
-            current = closest_node(current,n);
+        for (size_t j = 0; j < nodes.size()-1; j++){ // -1 since we removed the starting node
+            current = closest_node(current,pop,solution);
             solution.push_back(current);
         }
+
+        assert(solution.size() == nodes.size());
         current_score = total_score(solution);
+
         if (current_score < best_score){
             best_score = current_score;
             cout << "best score updated to: " << best_score << endl; 
         }
         
     }
-    ofstream o;
-    o.open(OUTFILE);
-    time_t now;
-    now = time(nullptr);
-    char* stamp = ctime(&now);
-    cout << stamp << "best solution is: " << fixed << best_score << endl;
-    string start_coord = "(" + to_string(solution[0].x) + "," + to_string(solution[0].y) + ")";
-    nlohmann::json data;
-    data["dist"] = best_score;
-    data["start_node"] = start_coord;
-    data["timestamp"] = stamp;
-    data["zcycle"] = solution;
-    o << data << endl; 
-
+    dump_data(solution,best_score);
     return EXIT_SUCCESS;
 }
