@@ -7,8 +7,8 @@
 #include <nlohmann/json.hpp>
 #include <assert.h>
 
-#define INFILE "../data128.txt"
-#define OUTFILE "cycle128.ndjson"
+#define INFILE "../datasets/data128.txt"
+#define OUTFILE "../cycles/cycle128.ndjson"
 
 using namespace std;
 
@@ -21,25 +21,26 @@ Node closest_node(const Node &current, vector<Node> &pop, const vector<Node> &so
     stack<Node,vector<Node>> ns(pop);
     
     double cdist;
+    int index_to_closest = 0;
     while (ns.size() > 0){
         cdist = dst(current,ns.top());
-
+        
         if (
             (ns.top() != current) && 
             (cdist < closest.first) && 
             (find(solution.begin(), solution.end(), ns.top()) == solution.end())
            ){
+            index_to_closest = ns.size()-1;
             closest.first = cdist;
             closest.second = ns.top();
             ns.pop();
-
         }
         else{
             ns.pop();
         }
     }
-    // Here we could optimize by just keeping track of the index, but meh
-    pop.erase(find(pop.begin(), pop.end(), closest.second));
+
+    pop.erase(pop.begin() + index_to_closest);
     return closest.second;
 }
 
@@ -65,7 +66,7 @@ char* get_timestamp(){
     return stamp;
 }
 
-nlohmann::json wrap_data(vector<Node> &solution, const double best_score, char* stamp){
+nlohmann::json wrap_data(const vector<Node> &solution, const double best_score, const char* stamp){
     nlohmann::json data;
     data["dist"] = best_score;
     data["start_node"] = "(" + to_string(solution[0].x) + "," + to_string(solution[0].y) + ")";
@@ -77,6 +78,10 @@ nlohmann::json wrap_data(vector<Node> &solution, const double best_score, char* 
 void dump_data(vector<Node> &solution, const double best_score){
     ofstream o;
     o.open(OUTFILE);
+    if(!o){
+        cout << "could not open OUTFILE" << endl;
+        exit(EXIT_FAILURE);
+    }
     char* stamp = get_timestamp();
     cout << stamp << "best solution is: " << fixed << best_score << endl;
     nlohmann::json data = wrap_data(solution,best_score,stamp);
@@ -97,6 +102,11 @@ int main(){
     string line;
     vector<Node> nodes, solution, pop;
 
+    if(!data_file){
+        cout << "could not open INFILE" << endl;
+        return EXIT_FAILURE;
+    }
+
     while (getline(data_file,line)){
         int x, y;
         stringstream ss(line);
@@ -107,6 +117,7 @@ int main(){
             nodes.push_back(node); // Only append unique nodes, ignore dupliates
         }
     }
+
     double best_score = INT32_MAX, current_score = 0;
     
     for (size_t i = 0; i < nodes.size(); i++){
